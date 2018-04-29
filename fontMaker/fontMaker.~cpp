@@ -109,8 +109,10 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
       fprintf(fp, " //   ");
       #endif
 
-      for (int xpix = 0; xpix < slot->bitmap.width; xpix++) 
-        frameBuf[buf++] = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + xpix];
+      for (int xpix = 0; xpix < slot->bitmap.width; xpix++) {
+        BYTE grey = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + xpix];
+        frameBuf[buf++] = grey;
+        }
         //{{{
         //BYTE xMask = 0x80 >> (xpix & 7);
         //bool on = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + (xpix/8)] & xMask;
@@ -199,7 +201,7 @@ int _tmain (int argc, _TCHAR* argv[]) {
 
   FT_Error error = FT_Init_FreeType (&library);
 
-  makeFont ("FreeSansBold.ttf", 16, 0x21, 0x7f);
+  makeFont ("FreeSansBold.ttf", 18, 0x21, 0x7f);
   //makeFont ("FreeSansBold.ttf", 36, 0x21, 0x7f);
   //makeFont ("FreeSansBold.ttf", 72, 0x21, 0x7f);
   //makeFont ("FreeSansBold.ttf", 120, 0x21, 0x7f);
