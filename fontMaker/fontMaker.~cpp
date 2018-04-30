@@ -12,6 +12,7 @@
 #define WRITEFILE
 
 bool full = true;
+int bits = 4;
 
 FT_Library library;
 
@@ -22,7 +23,6 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
   WORD frameBuf [400*320];
 
   FT_Face face;
-  //FT_Error error = FT_New_Face (library, font, 0, &face);
   FT_Error error = FT_New_Memory_Face( library, (FT_Byte*)freeSansBold, freeSansBold_len, 0, &face );
 
   printf ("num_faces %d\n", face->num_faces);
@@ -36,7 +36,7 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
 
   #ifdef WRITEFILE
   char str[40];
-  sprintf (str, "font%d.c", height);
+  sprintf (str, "font%dx%d.c", height, bits);
   FILE* fp = fopen(str, "w");
   if (!fp)
     printf("WRITEFILE error\n");
@@ -52,11 +52,13 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
     }
     //}}}
 
-  #ifdef WRITEFILE
-  fprintf (fp, "#include \"font8.h\"\n");
+#ifdef WRITEFILE
+  // file header
+  fprintf (fp, "// fontmaker  - %s\n", str);
+  fprintf (fp, "#include \"fontSpec.h\"\n");
   fprintf (fp, "\n");
   fprintf (fp, "const uint8_t glyphsBase[] = {\n");
-  #endif
+#endif
 
   int byteOffset = 0;
   int totalBytes = 0;
@@ -64,11 +66,10 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
   int totalHighestCount = 0;
 
   for (int ch = firstChar; ch <= lastChar; ch++) {
-    //error = FT_Load_Char (face, ch, FT_LOAD_RENDER | FT_LOAD_TARGET_MONO);
-    error = FT_Load_Char (face, ch, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL);
+    error = FT_Load_Char (face, ch, FT_LOAD_RENDER | ((bits == 1) ? FT_LOAD_TARGET_MONO : FT_LOAD_TARGET_NORMAL));
 
     if (full) {
-      //{{{
+      //{{{  printf char params
       printf ("Width %d\n", slot->bitmap.width);
       printf ("height %d\n", slot->bitmap.rows);
       printf ("Pitch %d\n", slot->bitmap.pitch);
@@ -79,19 +80,22 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
       //}}}
 
     byteOffsets[ch] = byteOffset;
-    #ifdef WRITEFILE
+  #ifdef WRITEFILE
+    //{{{  file char header
+    fprintf (fp, "//\n");
     fprintf (fp, "// char:%02x \"%c\"\n", ch, ch);
     fprintf (fp, "  %d, // width\n", slot->bitmap.width);
     byteOffset++;
     fprintf (fp, "  %d, // height\n", slot->bitmap.rows);
     byteOffset++;
-    fprintf (fp, "  0x%02x, // left\n", slot->bitmap_left);
+    fprintf (fp, "  0x%02x, // left\n", slot->bitmap_left &0xFF);
     byteOffset++;
     fprintf (fp, "  0x%02x, // top\n", slot->bitmap_top & 0xFF);
     byteOffset++;
     fprintf (fp, "  %d, // advance\n", slot->advance.x / 64);
     byteOffset++;
-    #endif
+    //}}}
+  #endif
 
     int buf = 0;
     bool countingOn = false;
@@ -99,59 +103,106 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
     int counts = 0;
     int count = 0;
     for (int ypix = 0; ypix < slot->bitmap.rows; ypix++) {
-      #ifdef WRITEFILE
+    #ifdef WRITEFILE
       fprintf(fp, "  ");
-      //for (int x = 0; x < (slot->bitmap.width+7)/8; x++) {
-      for (int x = 0; x < slot->bitmap.width; x++) {
-        fprintf (fp, "0x%02x, ", slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + x]);
-        byteOffset++;
+      if (bits == 1) {
+        //{{{  1 bit
+        for (int x = 0; x < (slot->bitmap.width + 7) / 8; x++) {
+          fprintf (fp, "0x%02x, ", slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + x]);
+          byteOffset++;
+          }
         }
-      fprintf(fp, " //   ");
-      #endif
-
-      for (int xpix = 0; xpix < slot->bitmap.width; xpix++) {
-        BYTE grey = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + xpix];
-        frameBuf[buf++] = grey;
+        //}}}
+      else if (bits == 4) {
+        //{{{  4 bit
+        for (int x = 0; x < (slot->bitmap.width + 3) / 4; x++) {
+          fprintf (fp, "0x%02x, ", slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + x]);
+          byteOffset++;
+          }
         }
-        //{{{
-        //BYTE xMask = 0x80 >> (xpix & 7);
-        //bool on = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + (xpix/8)] & xMask;
-        //frameBuf[buf++] = on ? 0xFFFF : 0;
-
-        //if (on == countingOn)
-          //count++;
-        //else {
-          //counts++;
-          //if (count > highestCount) highestCount = count;
-          //countingOn = on;
-          //count = 0;
-          //}
-
-        //#ifdef WRITEFILE
-        //if (on)
-          //fprintf (fp, "X");
-        //else
-          //fprintf (fp, ".");
-        //#endif
-
-        //if (full) {
-          //if (on)
-            //printf ("X");
-          //else
-            //printf (".");
-          //}
-
-        ////uint8 grey = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + xpix];
-        ////frameBuf[buf++] = ((grey >> 5) & 0x0006)  | // g 7:5
-        ////                  ((grey << 11) & 0x0000) | // g 4:2
-        ////                  ((grey << 5) & 0x1F00)  | // b 7:3
-        ////                  ((grey >> 0) & 0x00C0);   // r 7:3
-        //}
+        //}}}
+      else if (bits == 8) {
+        //{{{  8 bit
+        for (int x = 0; x < slot->bitmap.width; x++) {
+          fprintf (fp, "0x%02x, ", slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + x]);
+          byteOffset++;
+          }
+        }
         //}}}
 
-      #ifdef WRITEFILE
+      fprintf(fp, " //   ");
+    #endif
+
+      for (int xpix = 0; xpix < slot->bitmap.width; xpix++) {
+        if (bits == 8)
+          frameBuf[buf++] = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + xpix];
+        else if (bits == 4) {
+          //{{{  4 bit packing
+          BYTE xMask = 0xF0 >> (xpix & 1);
+          bool on = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + (xpix / bits)] & xMask;
+          frameBuf[buf++] = on ? 0xFFFF : 0;
+
+          if (on == countingOn)
+            count++;
+          else {
+            counts++;
+            if (count > highestCount)
+              highestCount = count;
+            countingOn = on;
+            count = 0;
+            }
+
+          #ifdef WRITEFILE
+          if (on)
+            fprintf (fp, "X");
+          else
+            fprintf (fp, ".");
+          #endif
+
+          if (full) {
+            if (on)
+              printf ("X");
+            else
+              printf (".");
+            }
+          }
+          //}}}
+        else if (bits == 1) {
+          //{{{  1 bit packing
+          BYTE xMask = 0x80 >> (xpix & 7);
+          bool on = slot->bitmap.buffer[(ypix * slot->bitmap.pitch) + (xpix/8)] & xMask;
+          frameBuf[buf++] = on ? 0xFFFF : 0;
+
+          if (on == countingOn)
+            count++;
+          else {
+            counts++;
+            if (count > highestCount)
+            highestCount = count;
+            countingOn = on;
+            count = 0;
+            }
+
+          #ifdef WRITEFILE
+          if (on)
+            fprintf (fp, "X");
+          else
+            fprintf (fp, ".");
+          #endif
+
+          if (full) {
+            if (on)
+              printf ("X");
+            else
+              printf (".");
+            }
+          }
+          //}}}
+        }
+
+    #ifdef WRITEFILE
       fprintf(fp, "\n");
-      #endif
+    #endif
 
       if (full) {
         //{{{  print line totals
@@ -169,7 +220,8 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
       totalHighestCount = highestCount;
     }
 
-  #ifdef WRITEFILE
+#ifdef WRITEFILE
+  //{{{  file trailer
   fprintf(fp, "//\n");
   fprintf(fp, "};\n");
 
@@ -178,7 +230,7 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
     fprintf(fp, "  0x%04x, // char %02x - %c offset\n", byteOffsets[ch], ch, ch);
   fprintf(fp, "};\n");
 
-  fprintf(fp, "const struct font_t kFont%d = {\n", height);
+  fprintf(fp, "const struct fontSpec_t kFont%d = {\n", height);
   fprintf(fp, "  .fixedWidth     = 0,\n");
   fprintf(fp, "  .height         = %d,\n", height);
   fprintf(fp, "  .spaceWidth     = %d,\n", height/4);
@@ -188,7 +240,8 @@ void makeFont (char* font, int height, BYTE firstChar, BYTE lastChar) {
   fprintf(fp, "  .glyphOffsets   = glyphOffsets\n");
   fprintf(fp, "};\n");
   fclose(fp);
-  #endif
+  //}}}
+#endif
 
   printf ("height:%d counts:%d highestCount:%d bytes:%d\n",
           height, totalCounts, totalHighestCount, totalBytes);
@@ -201,7 +254,7 @@ int _tmain (int argc, _TCHAR* argv[]) {
 
   FT_Error error = FT_Init_FreeType (&library);
 
-  makeFont ("FreeSansBold.ttf", 18, 0x21, 0x7f);
+  makeFont ("FreeSansBold.ttf", 16, 0x21, 0x7f);
   //makeFont ("FreeSansBold.ttf", 36, 0x21, 0x7f);
   //makeFont ("FreeSansBold.ttf", 72, 0x21, 0x7f);
   //makeFont ("FreeSansBold.ttf", 120, 0x21, 0x7f);
